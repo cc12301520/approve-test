@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Approve 弹窗测试 - ExchangeAllowanceVault</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #0f1115; color: #e6e6e6; }
+  h1 { font-size: 20px; }
+  .card { background: #1a1d24; border: 1px solid #2a2f3a; border-radius: 10px; padding: 18px; margin: 16px 0; }
+  .label { color: #8b93a7; font-size: 13px; margin-bottom: 6px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; font-size: 13px; }
+  button { background: #2f6fed; color: #fff; border: 0; border-radius: 8px; padding: 11px 16px; font-size: 14px; cursor: pointer; margin: 6px 6px 6px 0; }
+  button.secondary { background: #2a2f3a; }
+  button.danger { background: #c0392b; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input { background: #0f1115; border: 1px solid #2a2f3a; color: #e6e6e6; border-radius: 8px; padding: 10px; width: 200px; font-size: 14px; }
+  #log { background: #0b0d11; border: 1px solid #2a2f3a; border-radius: 8px; padding: 12px; min-height: 120px; font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; color: #9fe6a0; }
+  .warn { color: #ffb86b; font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<h1>Approve 弹窗测试</h1>
+
+<div class="card">
+  <div class="label">USDT 合约</div>
+  <div class="mono">TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t</div>
+  <div class="label" style="margin-top:12px;">Spender（你的 ExchangeAllowanceVault）</div>
+  <div class="mono">TDB5xcvWFC7vzTEGi1wxq9LjnJ8JDD5766</div>
+  <div class="label" style="margin-top:12px;">当前钱包地址</div>
+  <div class="mono" id="addr">未连接</div>
+</div>
+
+<div class="card">
+  <button id="btnConnect">连接 TronLink</button>
+  <button id="btnAllowance" class="secondary">查询当前 allowance</button>
+</div>
+
+<div class="card">
+  <div class="label">无限授权（uint256 max）—— 用于测试钱包标红</div>
+  <button id="btnApproveMax" class="danger">Approve 无限额度</button>
+</div>
+
+<div class="card">
+  <div class="label">有限授权（单位：USDT）</div>
+  <input id="amountInput" type="number" value="10000" min="1" step="1" />
+  <button id="btnApproveLimited">Approve 有限额度</button>
+</div>
+
+<div class="card">
+  <div class="label">撤销授权（approve 0）</div>
+  <button id="btnRevoke" class="secondary">Revoke（归零）</button>
+</div>
+
+<div class="card">
+  <div class="label">日志</div>
+  <div id="log"></div>
+</div>
+
+<div class="card warn">
+  仅用于测试。测试完成后务必点击“Revoke（归零）”，把 allowance 清掉。<br>
+  无限授权后，任何拿到你合约 owner 权限的人，理论上都能在合约限额内扣款，测试完请归零。
+</div>
+
+<script>
+const USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const SPENDER = "TDB5xcvWFC7vzTEGi1wxq9LjnJ8JDD5766";
+const UINT256_MAX = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+const USDT_DECIMALS = 6;
+
+const logEl = document.getElementById("log");
+const addrEl = document.getElementById("addr");
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString();
+  logEl.textContent += `[${t}] ${msg}\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function getTronWeb() {
+  if (window.tronWeb && window.tronWeb.ready) return window.tronWeb;
+  return null;
+}
+
+async function connect() {
+  try {
+    if (window.tronLink) {
+      const res = await window.tronLink.request({ method: "tron_requestAccounts" });
+      log("tron_requestAccounts: " + JSON.stringify(res));
+    }
+    const tw = getTronWeb();
+    if (!tw) {
+      log("未检测到 TronLink，请安装扩展或在 TronLink DApp 浏览器中打开。");
+      return;
+    }
+    const addr = tw.defaultAddress.base58;
+    addrEl.textContent = addr;
+    log("已连接: " + addr);
+  } catch (e) {
+    log("连接失败: " + (e && e.message ? e.message : JSON.stringify(e)));
+  }
+}
+
+async function approveRaw(amountStr, label) {
+  const tw = getTronWeb();
+  if (!tw) { log("请先连接 TronLink"); return; }
+  try {
+    const contract = await tw.contract().at(USDT);
+    log(`发起 approve(${SPENDER}, ${label}) ...`);
+    const tx = await contract.approve(SPENDER, amountStr).send({ feeLimit: 100_000_000 });
+    log("交易已发送，TxID: " + tx);
+    log("请在 TronLink 弹窗中观察风险提示，并确认或取消。");
+  } catch (e) {
+    log("approve 失败/取消: " + (e && e.message ? e.message : JSON.stringify(e)));
+  }
+}
+
+async function approveMax() {
+  await approveRaw(UINT256_MAX, "uint256 max / 无限");
+}
+
+async function approveLimited() {
+  const v = document.getElementById("amountInput").value;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) { log("请输入有效额度"); return; }
+  // 避免浮点误差，用字符串拼接整数部分
+  const amountStr = BigInt(Math.round(n)) * (10n ** BigInt(USDT_DECIMALS)) + "";
+  await approveRaw(amountStr, `${n} USDT`);
+}
+
+async function revoke() {
+  await approveRaw("0", "0 / 撤销");
+}
+
+async function queryAllowance() {
+  const tw = getTronWeb();
+  if (!tw) { log("请先连接 TronLink"); return; }
+  try {
+    const contract = await tw.contract().at(USDT);
+    const addr = tw.defaultAddress.base58;
+    const res = await contract.allowance(addr, SPENDER).call();
+    const raw = res.toString();
+    const human = (Number(BigInt(raw)) / 10 ** USDT_DECIMALS).toLocaleString();
+    log(`allowance(${addr} -> ${SPENDER}) = ${raw} base units ≈ ${human} USDT`);
+  } catch (e) {
+    log("查询失败: " + (e && e.message ? e.message : JSON.stringify(e)));
+  }
+}
+
+document.getElementById("btnConnect").onclick = connect;
+document.getElementById("btnApproveMax").onclick = approveMax;
+document.getElementById("btnApproveLimited").onclick = approveLimited;
+document.getElementById("btnRevoke").onclick = revoke;
+document.getElementById("btnAllowance").onclick = queryAllowance;
+
+window.addEventListener("load", () => {
+  setTimeout(() => {
+    if (getTronWeb()) {
+      addrEl.textContent = window.tronWeb.defaultAddress.base58 || "未解锁";
+      log("检测到 TronLink 已注入");
+    } else {
+      log("未检测到 TronLink，请点击“连接 TronLink”或在 DApp 浏览器中打开。");
+    }
+  }, 500);
+});
+</script>
+</body>
+</html>
